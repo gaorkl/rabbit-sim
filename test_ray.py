@@ -6,13 +6,13 @@ from PIL import Image, ImageShow, ImageDraw
 
 
 from sensors.ray import RaySensor, RayShader, UniqueRaySensor
-from env import RabbitWorld, View
+from env import RabbitWorld, TopDownView
 
 
 def analyze_speed_rays(n_rays, range_rays, n_sensors):
     
-    env = RabbitWorld(1000, 1000, 50, 10, 10, 0)
-    view = View(env, (0,0), (1000, 1000), 1, False, id_view=True)
+    env = RabbitWorld((1000, 1000), 50, 10, 10, 0)
+    view = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=True)
 
     sensors = []
 
@@ -37,8 +37,8 @@ def analyze_speed_rays(n_rays, range_rays, n_sensors):
 
 def analyze_speed_ray_shader(n_rays, range_rays, n_sensors):
     
-    env = RabbitWorld(1000, 1000, 50, 10, 10, 0)
-    view = View(env, (0,0), (1000, 1000), 1, False, id_view=True)
+    env = RabbitWorld((1000, 1000), 50, 10, 10, 0)
+    view = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=True)
 
     ray_shader = RayShader(view)
 
@@ -64,9 +64,9 @@ def analyze_speed_ray_shader(n_rays, range_rays, n_sensors):
 
 def visualize_ray_shader():
 
-    env = RabbitWorld(1000, 1000, 50, 10, 10, 0)
-    view = View(env, (0,0), (1000, 1000), 1, False, id_view=True)
-    view_disp = View(env, (0,0), (1000, 1000), 1, False, id_view=False)
+    env = RabbitWorld((1000, 1000), 50, 20, 10, 0)
+    view = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=True)
+    view_disp = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=False)
 
     ray_shader = RayShader(view)
 
@@ -89,7 +89,6 @@ def visualize_ray_shader():
     sensor_4.center = (900, 900)
     sensor_4.angle = -math.pi
     ray_shader.add_sensor(sensor_4)
-     
 
     view.buf_update()
     view_disp.buf_update()
@@ -109,16 +108,20 @@ def visualize_ray_shader():
             x, y = pt[:2]
             col = tuple( int(x) for x in pt[4:] )
             d.line((sensor.center[0], sensor.center[1], x, y), col)
-    
+  
+            # Verify that what we hit exist!
+            if col != (0,0,0,0):
+                assert tuple(col[:3]) in env.all_ids
+
         ImageShow.show(img, 'test')
     # # sensor.update_sensor()
     # # sensor.update_sensor()
  
 def visualize_ray_invisible_elems():
 
-    env = RabbitWorld(1000, 1000, 50, 10, 10, 0)
-    view = View(env, (0,0), (1000, 1000), 1, False, id_view=True)
-    view_disp = View(env, (0,0), (1000, 1000), 1, False, id_view=False)
+    env = RabbitWorld((1000, 1000), 50, 10, 10, 0)
+    view = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=True)
+    view_disp = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=False)
 
     ray_shader = RayShader(view)
 
@@ -150,7 +153,7 @@ def visualize_ray_invisible_elems():
         for pt in sensor.output:
 
             x, y = pt[:2]
-            col = tuple( int(x) for x in pt[4:] )
+            col = tuple( int(x) for x in pt[3:] )
             print(col)
             d.line((sensor.center[0], sensor.center[1], x, y), col)
     
@@ -163,9 +166,9 @@ def visualize_ray_invisible_elems():
 
 if __name__ == '__main__':
 
-    # visualize_ray_shader()
+    visualize_ray_shader()
 
-    visualize_ray_invisible_elems()
+    # visualize_ray_invisible_elems()
 
     # for n_rays in [100]:
     #     for range_rays in [1000]:
