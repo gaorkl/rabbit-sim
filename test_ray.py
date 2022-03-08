@@ -1,4 +1,4 @@
-from elements import WereRabbit
+from elements import Rabbit, WereRabbit, id_to_pixel
 import math
 import numpy as np
 import time
@@ -64,30 +64,31 @@ def analyze_speed_ray_shader(n_rays, range_rays, n_sensors):
 
 def visualize_ray_shader():
 
-    env = RabbitWorld((1000, 1000), 50, 20, 10, 0)
+    env = RabbitWorld((1000, 1000), 30, 5, 30, 43)
     view = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=True)
     view_disp = TopDownView(env, (0,0), (1000, 1000), 1, False, id_view=False)
 
     ray_shader = RayShader(view)
 
-    sensor_1 = RaySensor(n_rays=10, range=100, fov=math.pi/2, spatial_resolution=1)
-    sensor_1.center = (100, 100)
-    sensor_1.angle = 0
+    wrabbits = [elem for elem in env.elems if isinstance(elem, WereRabbit)]
+
+    ids_rabbit = [elem.id for elem in env.elems if isinstance(elem, Rabbit)]
+    
+
+    sensor_1 = RaySensor(wrabbits[0], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
+    sensor_1.invisible_ids = ids_rabbit
     ray_shader.add_sensor(sensor_1)
     
-    sensor_2 = RaySensor(n_rays=100, range=200, fov=math.pi, spatial_resolution=1)
-    sensor_2.center = (100, 900)
-    sensor_2.angle = math.pi/2
+    sensor_2 = RaySensor(wrabbits[1], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
+    sensor_2.invisible_ids = ids_rabbit
     ray_shader.add_sensor(sensor_2)
     
-    sensor_3 = RaySensor(n_rays=200, range=400, fov=3*math.pi/2, spatial_resolution=1)
-    sensor_3.center = (900, 100)
-    sensor_3.angle = math.pi
+    sensor_3 = RaySensor(wrabbits[2], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
+    sensor_3.invisible_ids = ids_rabbit
     ray_shader.add_sensor(sensor_3)
      
-    sensor_4 = RaySensor(n_rays=500, range=50, fov=2*math.pi, spatial_resolution=1)
-    sensor_4.center = (900, 900)
-    sensor_4.angle = -math.pi
+    sensor_4 = RaySensor(wrabbits[3], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
+    sensor_4.invisible_ids = ids_rabbit
     ray_shader.add_sensor(sensor_4)
 
     view.buf_update()
@@ -96,24 +97,28 @@ def visualize_ray_shader():
     t1 = time.time()
 
     ray_shader.update_sensor()
- 
+    array = np.frombuffer(view_disp.fbo.read(), dtype=np.dtype('B')).reshape(view.width, view.height, 3)
+    img = Image.fromarray(array, 'RGB')
+
+    d = ImageDraw.Draw(img)
+
+
     for sensor in ray_shader.sensors:
-        array = np.frombuffer(view_disp.fbo.read(), dtype=np.dtype('B')).reshape(view.width, view.height, 3)
-        img = Image.fromarray(array, 'RGB')
-
-        d = ImageDraw.Draw(img)
-
+        print(sensor.center)
         for pt in sensor.output:
 
             x, y = pt[:2]
-            col = tuple( int(x) for x in pt[4:] )
-            d.line((sensor.center[0], sensor.center[1], x, y), col)
+            id_detection = int(pt[2])
   
             # Verify that what we hit exist!
-            if col != (0,0,0,0):
-                assert tuple(col[:3]) in env.all_ids
+            if id_detection != 0:
+                assert id_detection in env.ids.keys()
+                d.line((sensor.center[0], sensor.center[1], x, y), id_to_pixel(id_detection))
+            else:
 
-        ImageShow.show(img, 'test')
+                d.line((sensor.center[0], sensor.center[1], x, y), (124, 124, 124, 123))
+
+    ImageShow.show(img, 'test')
     # # sensor.update_sensor()
     # # sensor.update_sensor()
  
@@ -140,30 +145,27 @@ def visualize_ray_invisible_elems():
     view.buf_update()
     view_disp.buf_update()
 
-    t1 = time.time()
-
     ray_shader.update_sensor()
- 
+    array = np.frombuffer(view_disp.fbo.read(), dtype=np.dtype('B')).reshape(view.width, view.height, 3)
+    img = Image.fromarray(array, 'RGB')
+
+    d = ImageDraw.Draw(img)
+
+
     for sensor in ray_shader.sensors:
-        array = np.frombuffer(view_disp.fbo.read(), dtype=np.dtype('B')).reshape(view.width, view.height, 3)
-        img = Image.fromarray(array, 'RGB')
-
-        d = ImageDraw.Draw(img)
-
         for pt in sensor.output:
 
             x, y = pt[:2]
-            col = tuple( int(x) for x in pt[3:] )
-            print(col)
-            d.line((sensor.center[0], sensor.center[1], x, y), col)
-    
-        ImageShow.show(img, 'test')
-    # # sensor.update_sensor()
-    # # sensor.update_sensor()
-    
+            id_detection = int(pt[2])
+            d.line((sensor.center[0], sensor.center[1], x, y), id_to_pixel(id_detection))
+  
+            # Verify that what we hit exist!
+            if id_detection != 0:
+                assert id_detection in env.ids.keys()
 
+    ImageShow.show(img, 'test')
+    #
    
-
 if __name__ == '__main__':
 
     visualize_ray_shader()

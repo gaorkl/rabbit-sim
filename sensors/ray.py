@@ -131,7 +131,7 @@ class UniqueRaySensor:
 
 class RaySensor:
 
-    def __init__(self, n_rays, range, fov, spatial_resolution):
+    def __init__(self, anchor, n_rays, range, fov, spatial_resolution):
 
         self.range = range
         self.n_rays = n_rays
@@ -139,10 +139,21 @@ class RaySensor:
         self.spatial_resolution = spatial_resolution
         self.n_points = int(self.range / self.spatial_resolution)
 
-        self.center = (0, 0)
-        self.angle = 0
+        self.anchor = anchor
 
         self.value = 0
+
+        self.invisible_ids = []
+
+    @property
+    def center(self):
+        x = self.anchor.body.position[0] + self.anchor.env.w/2
+        y = self.anchor.body.position[1] + self.anchor.env.h/2
+        return x, y
+
+    @property
+    def angle(self):
+        return self.anchor.body.angle
 
 
 class RayShader:
@@ -161,8 +172,9 @@ class RayShader:
             
             struct HitPoint
             {
-                vec4 pos;
-                vec4 color;
+                float pos_x;
+                float pos_y;
+                float id;
             };
 
             struct SensorParam
@@ -197,11 +209,16 @@ class RayShader:
                 HitPoint hpts[];
             } Out;
 
+            layout(std430, binding=3) buffer invisible_ids
+            {
+                int inv_ids[N_SENSORS][MAX_N_INVISIBLE];
+            }InvIDs;
+
+
             float pi = 3.14;
 
             void main() {
 
-                
                 int i_ray = int(gl_LocalInvocationIndex);
                 int i_sensor = int(gl_WorkGroupID);
 
@@ -212,6 +229,7 @@ class RayShader:
                 float angle = in_coord.angle;
                    
                 SensorParam s_param = Params.sensor_params[i_sensor];
+                int inv_pts[MAX_N_INVISIBLE] = InvIDs.inv_ids[i_sensor];
 
                 float range = s_param.range;
                 float fov = s_param.fov;
@@ -224,8 +242,9 @@ class RayShader:
                         center_y + range*sin(angle -fov/2 + i_ray*fov/n_rays));
 
                 ivec2 sample_point = ivec2(0,0);
-               
-                vec4 color_out = vec4(0,0,0, 0);
+                vec4 color_out = vec4(0,0,0,0);
+
+                int id_out = 0;
                 
                 // Ray cast
                 for(float i=0; i<n_points; i++)
@@ -234,14 +253,33 @@ class RayShader:
                     sample_point = ivec2(mix(center, end_pos, ratio));
                     color_out = texelFetch(texture_view, sample_point, 0);
 
-                    if (color_out != vec4(0,0,0,0)) break;
+                    id_out = int(256*256*color_out.z*255 + 256*color_out.y*255 + color_out.x*255);
+                    
+                    if (id_out != 0)
+                    {
+                        bool invisible = false;
+
+                        for(int ind_inv=0; ind_inv<MAX_N_INVISIBLE; ind_inv++)
+                        {
+                            if (inv_pts[ind_inv] == id_out)
+                            {
+                                invisible = true;
+                                id_out = 0;
+                                break;
+                            }
+
+                        }
+
+                        if (!invisible) break;
+    
+                    }
 
                 }
                 
                 HitPoint out_pt;
-                out_pt.pos = vec4(sample_point, 0, 0);
-               
-                out_pt.color = color_out*255;
+                out_pt.pos_x = sample_point.x;
+                out_pt.pos_y = sample_point.y;
+                out_pt.id = float(id_out);               
 
                 Out.hpts[i_ray + i_sensor*MAX_N_RAYS] = out_pt;
                 
@@ -255,6 +293,10 @@ class RayShader:
     @property
     def max_n_rays(self):
         return max( sensor.n_rays for sensor in self.sensors )
+
+    @property
+    def max_invisible(self):
+        return 1 + max( len(sensor.invisible_ids) for sensor in self.sensors )
 
     def generate_parameter_buffer(self):
 
@@ -279,14 +321,26 @@ class RayShader:
                     # Position
                     yield 0.
                     yield 0.
-                    yield 0.
-                    yield 0.
 
                     # ID
                     yield 0.
-                    yield 0.
-                    yield 0.
-                    yield 0.
+
+    def generate_invisible_buffer(self):
+
+        for sensor in self.sensors:
+
+            count = 1
+            yield sensor.anchor.id
+            
+            for inv in sensor.invisible_ids:
+                yield inv
+                count += 1
+
+            while count < self.max_invisible-1:
+                yield 0
+                count += 1
+
+
 
     def add_sensor(self, sensor):
         self.sensors.append(sensor)
@@ -294,26 +348,29 @@ class RayShader:
         self.position_buffer = self.ctx.buffer(data = array('f', self.generate_position_buffer()))
         self.param_buffer = self.ctx.buffer(data = array('f', self.generate_parameter_buffer()))
         self.output_rays_buffer = self.ctx.buffer(data = array('f', self.generate_output_buffer()))
-       
+        self.inv_buffer = self.ctx.buffer(data = array('I', self.generate_invisible_buffer()))
         new_source = self.source
         new_source = new_source.replace('N_SENSORS', str(len(self.sensors)))
         new_source = new_source.replace('MAX_N_RAYS', str(self.max_n_rays))
+        new_source = new_source.replace('MAX_N_INVISIBLE', str(self.max_invisible))
         self.ray_shader = self.ctx.compute_shader(source = new_source)
 
+        self.output_rays_buffer.bind_to_storage_buffer(binding=1)
+        self.param_buffer.bind_to_storage_buffer(binding=2)
+        self.inv_buffer.bind_to_storage_buffer(binding=3)
+
+        print(array('I', self.generate_invisible_buffer()))
 
     def update_sensor(self):
         
         if self.sensors:
             self.position_buffer = self.ctx.buffer(data = array('f', self.generate_position_buffer()))
             self.position_buffer.bind_to_storage_buffer(binding=0)
-            self.output_rays_buffer.bind_to_storage_buffer(binding=1)
-            self.param_buffer.bind_to_storage_buffer(binding=2)
             self.view.texture.use()
 
             self.ray_shader.run(group_x = self.n_sensors)
 
-            
-            arr = np.frombuffer(self.output_rays_buffer.read(), dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 8)
+            arr = np.frombuffer(self.output_rays_buffer.read(), dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 3)
             for index, sensor in enumerate(self.sensors):
                 sensor.output = arr[index, :sensor.n_rays, :]
 

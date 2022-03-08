@@ -8,6 +8,16 @@ import numpy as np
 import os
 from PIL import Image, ImageShow
 
+
+def id_to_pixel(id):
+
+        id_0 =  id & 255
+        id_1 = (id >> 8) & 255
+        id_2 = (id >> 16) & 255
+
+        return id_0, id_1, id_2
+
+
 class BaseElement(object):
 
     def __init__(self,
@@ -48,14 +58,6 @@ class BaseElement(object):
 
         self.sprites = {}
 
-    def get_id_pixel(self):
-
-        id_0 =  self.id & 255
-        id_1 = (self.id >> 8) & 255
-        id_2 = (self.id >> 16) & 255
-
-        return id_0, id_1, id_2
-
     def _get_sprite(self, scale, id_sprite):
         scale_ = scale * self.physical_scale
      
@@ -65,13 +67,8 @@ class BaseElement(object):
             pixels = id_img.load()
             pixels_text = self.texture.image.load()
  
- 
-            # id_0 = random.randint(0, 255)
-            # id_1 = random.randint(0, 255)
-            # id_group = random.randint(0, 255)
-            # id_el_type = 255
            
-            id_0, id_1, id_2 = self.get_id_pixel()
+            id_0, id_1, id_2 = id_to_pixel(self.id)
             alpha = 255 
 
             for i in range(id_img.size[0]):
