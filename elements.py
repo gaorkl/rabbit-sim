@@ -179,6 +179,9 @@ class WereRabbit(BaseElement):
 
 
 class Wall(BaseElement):
+
+    ind_wall = 0
+
     def __init__(self, env, start_pt, end_pt, width) -> None:
         
         INITIAL_WIDTH = 16
@@ -188,25 +191,29 @@ class Wall(BaseElement):
         end_pt = pymunk.Vec2d(*end_pt)
         pos = (start_pt + end_pt)/2
         angle = (end_pt-start_pt).angle
-        length_wall = int((end_pt - start_pt).length*ratio)
-        
+
+        width_out_texture = int((end_pt - start_pt).length)
+        height_out_texture = int(32*ratio)
+
         fname = self.get_file_name('wall.png')
         wall_block_texture = arcade.load_texture(fname)
         pixels_wall = wall_block_texture.image.load()
 
-        full_wall_image = Image.new('RGBA', (length_wall, wall_block_texture.size[1]))
-        
+        full_wall_image = Image.new('RGBA', (width_out_texture, height_out_texture))
        
         pixels_full_wall = full_wall_image.load()
         for i in range(full_wall_image.size[0]):
             for j in range(full_wall_image.size[1]):
 
-                i_wall = i%wall_block_texture.width
-                j_wall = j%wall_block_texture.height
+                j_wall = int(32*j/(32*ratio))
+                i_wall = i%32
+               
                 pixels_full_wall[i, j] = pixels_wall[i_wall, j_wall]
 
-        texture = arcade.Texture(name='test', image=full_wall_image,hit_box_algorithm='Detailed', hit_box_detail=0.1)
+        Wall.ind_wall += 1
+        name_wall = 'wall'+str(Wall.ind_wall)
 
-        super().__init__(env, (pos, angle), texture=texture, mass=None, physical_scale=1/ratio)
+        texture = arcade.Texture(name=name_wall, image=full_wall_image,hit_box_algorithm='Detailed', hit_box_detail=0.1)
 
+        super().__init__(env, (pos, angle), texture=texture, mass=None, physical_scale=1)
 

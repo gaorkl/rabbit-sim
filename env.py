@@ -77,8 +77,8 @@ class RabbitWorld(object):
 
     def add_element(self, elem_name):
               
-        x = random.randint(-self.w/2, self.w/2)
-        y = random.randint(-self.h/2, self.h/2)
+        x = random.randint(-self.w/2+30, self.w/2-30)
+        y = random.randint(-self.h/2+30, self.h/2-30)
 
         angle = random.uniform(-2, 2)
 
@@ -115,9 +115,10 @@ class RabbitWorld(object):
 
 if __name__ == '__main__':
 
-    env = RabbitWorld( (1000, 200), n_rabbits=50, n_wrabbits=10, n_carrots=20, seed=42)
-    view = TopDownView(env, (0,0), env.size, scale=1, id_view=False)
-            
+    env = RabbitWorld( (800, 200), n_rabbits=50, n_wrabbits=10, n_carrots=20, seed=42)
+    view = TopDownView(env, (0,0), (env.size[0], env.size[1]), scale=1, id_view=False)
+           
+
     env.step()
     view.buf_update()
     
