@@ -3,6 +3,7 @@ from typing import Optional
 import arcade
 import random
 import pymunk
+from pymunk import vec2d
 from pymunk.vec2d import Vec2d
 import numpy as np
 import os
@@ -37,8 +38,8 @@ class BaseElement(object):
         self.id = self.env.get_id(self)
         
         orig_sprite = self._get_sprite(scale=1, id_sprite=False)
-        vertices = orig_sprite.get_hit_box()
-        vertices = [[c*physical_scale for c in xy] for xy in vertices]
+        orig_vertices = orig_sprite.get_hit_box()
+        vertices = [[c*physical_scale for c in xy] for xy in orig_vertices]
         self.radius = max([pymunk.Vec2d(*vert).length for vert in vertices])
 
 
@@ -57,6 +58,71 @@ class BaseElement(object):
         self.shape = shape
 
         self.sprites = {}
+
+        self.vertices = vertices
+        self.borderpoints = self.compute_borderpoints(orig_vertices)
+        self.colors_borderpoints = self.compute_colors_borderpoints()
+
+
+    def compute_borderpoints(self, vertices):
+
+        min_dist_between_points = 1
+
+        points = []
+        for index_vert, vert in enumerate(vertices):
+            
+            prev_vert = vertices[index_vert - 1]
+            
+            len_segment = (Vec2d(*vert) - Vec2d(*prev_vert)).length 
+            n_points = int(len_segment/min_dist_between_points) - 1
+            
+            xs = np.linspace(vert[0], prev_vert[0], n_points+2)
+            ys = np.linspace(vert[1], prev_vert[1], n_points+2)
+
+            for i in range(len(xs)-1):
+                points.append((xs[i], ys[i]))
+
+        return points
+
+    def compute_colors_borderpoints(self):
+
+        colors_bp = {}
+
+        img = self.texture.image
+        np_img = np.array(img)
+
+        r, c = np.nonzero( np_img.sum(axis=2) )
+
+        for x, y in self.borderpoints:
+           
+            # convert x to col
+            c_pt = x + img.width/2
+            r_pt = img.height - (y + img.height/2)
+
+            min_idx = ((r - r_pt)**2 + (c - c_pt)**2).argmin()
+    
+            coord_min_x = r[min_idx]
+            coord_min_y = c[min_idx]
+
+            color = np_img[coord_min_x, coord_min_y]
+
+            colors_bp[(x, y)] = tuple(color)
+
+        return colors_bp
+
+    def get_pixel_from_point(self, pt):
+
+        abs_pt = Vec2d(*pt)
+        rel_pt = (abs_pt - self.position).rotated(-self.body.angle)
+
+        x_pt, y_pt = rel_pt
+
+        distances = { (x, y) : (x_pt-x)**2 + (y_pt - y)**2 for (x,y), color in self.colors_borderpoints.items() }
+
+        closets_pt = min(distances, key=distances.get)
+       
+        return self.colors_borderpoints[closets_pt]
+
 
     def _get_sprite(self, scale, id_sprite):
         scale_ = scale * self.physical_scale
@@ -105,7 +171,7 @@ class BaseElement(object):
 
     def _add_sprite(self, view):
         
-        sprite = self._get_sprite(view.scale, view.id_view)
+        sprite = self._get_sprite(view.zoom, view.id_view)
 
         self.sprites[view] = sprite
 
@@ -115,8 +181,8 @@ class BaseElement(object):
 
     def _update_sprite_position(self, view, sprite):
 
-        pos_x = self.body.position.x*view.scale + view.width // 2
-        pos_y = self.body.position.y*view.scale + view.height // 2
+        pos_x = (self.body.position.x - view.center[0])*view.zoom + view.width // 2
+        pos_y = (self.body.position.y - view.center[1])*view.zoom + view.height // 2
         
         sprite.set_position(pos_x, pos_y)
         sprite.angle = int(self.body.angle*180/math.pi)

@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 import math
 import random
 import numpy as np
@@ -142,18 +143,56 @@ class RaySensor:
         self.anchor = anchor
 
         self.value = 0
+        self.hitpoints = 0
 
         self.invisible_ids = []
 
     @property
     def center(self):
-        x = self.anchor.body.position[0] + self.anchor.env.w/2
-        y = self.anchor.body.position[1] + self.anchor.env.h/2
-        return x, y
+        return self.anchor.body.position
 
     @property
     def angle(self):
         return self.anchor.body.angle
+
+    def update_value(self, hitpoints):
+        self.hitpoints = hitpoints
+
+
+class DistanceSensor(RaySensor):
+
+    def update_value(self, hitpoints):
+
+        super().update_value(hitpoints)
+        self.value = hitpoints[:, 9]
+
+
+class RGBSensor(RaySensor):
+
+    def update_value(self, hitpoints):
+
+        super().update_value(hitpoints)
+
+        colors = []
+
+        ids = hitpoints[:, 4]
+        rel_pos = hitpoints[2:4]
+
+        for htp in hitpoints:
+
+            pos = htp[2:4]
+            elem_id = int(htp[8])
+           
+            if elem_id == 0:
+                color = (0,0,0)
+
+            else:
+                elem = self.anchor.env.ids[elem_id]
+                color = elem.get_pixel_from_point(pos)
+
+            colors.append(color)
+
+        self.value = np.array(colors)
 
 
 class RayShader:
@@ -165,6 +204,13 @@ class RayShader:
         
         self.ctx = self.view.ctx
 
+        self.view_params_buffer = self.ctx.buffer(data = array('f', 
+                                                               [view.center[0],
+                                                                view.center[1],
+                                                                view.width,
+                                                                view.height,
+                                                                view.zoom
+                                                                ]))
         self.source = """
             # version 440
             
@@ -172,9 +218,24 @@ class RayShader:
             
             struct HitPoint
             {
-                float pos_x;
-                float pos_y;
+                // Position of hitpoint on view
+                float view_pos_x;
+                float view_pos_y;
+                
+                // Position of hitpoint in env
+                float env_pos_x;
+                float env_pos_y;
+
+                // Position of hitpoint relative to sensor
+                float rel_pos_x;
+                float rel_pos_y;
+
+                // Position of sensor on view
+                float sensor_x_on_view;
+                float sensor_y_on_view;
+
                 float id;
+                float dist;
             };
 
             struct SensorParam
@@ -192,7 +253,7 @@ class RayShader:
                 float angle;
             };
 
-            uniform sampler2D texture_view; 
+            uniform sampler2D id_texture; 
             
             layout(std430, binding = 2) buffer sparams
             {
@@ -214,6 +275,15 @@ class RayShader:
                 int inv_ids[N_SENSORS][MAX_N_INVISIBLE];
             }InvIDs;
 
+            layout(std430, binding=4) buffer view_params
+            {
+                float center_view_x;
+                float center_view_y;
+                float w;
+                float h;
+                float zoom;
+
+            }ViewParams;
 
             float pi = 3.14;
 
@@ -222,36 +292,50 @@ class RayShader:
                 int i_ray = int(gl_LocalInvocationIndex);
                 int i_sensor = int(gl_WorkGroupID);
 
-                Coordinate in_coord = In.coords[i_sensor];
-
-                float center_x = in_coord.pos_x;
-                float center_y = in_coord.pos_y;
-                float angle = in_coord.angle;
-                   
+                // SENSOR PARAMETERS
                 SensorParam s_param = Params.sensor_params[i_sensor];
-                int inv_pts[MAX_N_INVISIBLE] = InvIDs.inv_ids[i_sensor];
-
                 float range = s_param.range;
                 float fov = s_param.fov;
                 float n_rays = s_param.n_rays;
                 float n_points = s_param.n_points;
 
-                vec2 center = vec2(center_x, center_y);
-                vec2 end_pos = vec2(
-                        center_x + range*cos(angle -fov/2 + i_ray*fov/n_rays),
-                        center_y + range*sin(angle -fov/2 + i_ray*fov/n_rays));
+                // VIEW PARAMETERS
+                float center_view_x = ViewParams.center_view_x; 
+                float center_view_y = ViewParams.center_view_y; 
+                float zoom = ViewParams.zoom;
+                float view_w = ViewParams.w;
+                float view_h = ViewParams.h;
 
+                // SENSOR POSITION
+                Coordinate in_coord = In.coords[i_sensor];
+                float sensor_pos_x = in_coord.pos_x;
+                float sensor_pos_y = in_coord.pos_y;
+                
+                float sensor_x_on_view = (sensor_pos_x - center_view_x)*zoom + view_w/2;
+                float sensor_y_on_view = (sensor_pos_y - center_view_y)*zoom + view_h/2;
+
+                float angle = in_coord.angle;
+
+                // INVISIBLE POINTS
+                int inv_pts[MAX_N_INVISIBLE] = InvIDs.inv_ids[i_sensor];
+
+                // CENTER AND END OF RAY
+                vec2 center = vec2(sensor_x_on_view, sensor_y_on_view);
+                vec2 end_pos = vec2(
+                        sensor_x_on_view + range*cos(angle -fov/2 + i_ray*fov/n_rays)*zoom,
+                        sensor_y_on_view + range*sin(angle -fov/2 + i_ray*fov/n_rays)*zoom);
+
+                // OUTPUTS
                 ivec2 sample_point = ivec2(0,0);
                 vec4 color_out = vec4(0,0,0,0);
-
                 int id_out = 0;
-                
+
                 // Ray cast
                 for(float i=0; i<n_points; i++)
                 {
                     float ratio = i/n_points;
                     sample_point = ivec2(mix(center, end_pos, ratio));
-                    color_out = texelFetch(texture_view, sample_point, 0);
+                    color_out = texelFetch(id_texture, sample_point, 0);
 
                     id_out = int(256*256*color_out.z*255 + 256*color_out.y*255 + color_out.x*255);
                     
@@ -276,10 +360,31 @@ class RayShader:
 
                 }
                 
+                float dx = sample_point.x - sensor_x_on_view;
+                float dy = sample_point.y - sensor_y_on_view;
+                float dist = sqrt( (dx*dx) + (dy*dy) )/zoom;
+
+                // CONVERT IN THE FRAME OF THE ENVIRONMENT
+
                 HitPoint out_pt;
-                out_pt.pos_x = sample_point.x;
-                out_pt.pos_y = sample_point.y;
+                
+                out_pt.view_pos_x = sample_point.x;
+                out_pt.view_pos_y = sample_point.y;
+
+                out_pt.env_pos_x = (sample_point.x - view_w/2)/zoom + center_view_x ;
+                out_pt.env_pos_y = (sample_point.y - view_h/2)/zoom + center_view_y ;
+                
+                //float rel_pos_x = (sample_point.x - center_x)*cos(angle) - (sample_point.y - center_y)*sin(angle);
+                //out_pt.env_rel_pos_x = rel_pos_x/zoom;
+
+                //float rel_pos_y = (sample_point.y - center_y)*cos(angle) + (sample_point.x - center_x)*sin(angle);
+                //out_pt.env_rel_pos_y = rel_pos_y/zoom;
+
+                out_pt.sensor_x_on_view = sensor_x_on_view ;
+                out_pt.sensor_y_on_view = sensor_y_on_view ;
+
                 out_pt.id = float(id_out);               
+                out_pt.dist = dist/zoom;
 
                 Out.hpts[i_ray + i_sensor*MAX_N_RAYS] = out_pt;
                 
@@ -318,11 +423,26 @@ class RayShader:
         for _ in range(self.n_sensors):
             for _ in range(self.max_n_rays):
 
-                    # Position
+                    # View Position
+                    yield 0.
+                    yield 0.
+
+                    # Abs Env Position
+                    yield 0.
+                    yield 0.
+
+                    # Rel Position
+                    yield 0.
+                    yield 0.
+
+                    # Sensor center on view
                     yield 0.
                     yield 0.
 
                     # ID
+                    yield 0.
+
+                    # Distance
                     yield 0.
 
     def generate_invisible_buffer(self):
@@ -358,8 +478,8 @@ class RayShader:
         self.output_rays_buffer.bind_to_storage_buffer(binding=1)
         self.param_buffer.bind_to_storage_buffer(binding=2)
         self.inv_buffer.bind_to_storage_buffer(binding=3)
+        self.view_params_buffer.bind_to_storage_buffer(binding=4)
 
-        print(array('I', self.generate_invisible_buffer()))
 
     def update_sensor(self):
         
@@ -370,9 +490,11 @@ class RayShader:
 
             self.ray_shader.run(group_x = self.n_sensors)
 
-            arr = np.frombuffer(self.output_rays_buffer.read(), dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 3)
+            hitpoints = np.frombuffer(self.output_rays_buffer.read(),
+                                      dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 10)
+
             for index, sensor in enumerate(self.sensors):
-                sensor.output = arr[index, :sensor.n_rays, :]
+                sensor.update_value(hitpoints[index, :sensor.n_rays, :])
 
 
 # class RayShader:
