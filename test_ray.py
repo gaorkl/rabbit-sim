@@ -5,24 +5,21 @@ import time
 from PIL import Image, ImageShow, ImageDraw
 
 
-from sensors.ray import DistanceSensor, RGBSensor, RaySensor, RayShader, UniqueRaySensor
+from sensors.ray import DistanceSensor, RGBSensor, RaySensor, RayCompute
 from env import RabbitWorld, TopDownView
 
 
 def analyze_speed_ray_shader(n_rays, range_rays, n_sensors, sensor_type, sensor_scale):
     
-    env = RabbitWorld((2000, 2000), n_sensors, 200, 200, 0)
-    view = TopDownView(env, (0,0), (int(2000*sensor_scale), int(2000*sensor_scale)), sensor_scale, False, id_view=True)
+    env = RabbitWorld((2000, 2000), n_sensors, 50, 200, 0)
 
-    ray_shader = RayShader(view)
+    ray_shader = RayCompute(env, center=(0,0), size = (int(2000*sensor_scale), int(2000*sensor_scale)), zoom = sensor_scale)    
 
     rabbits = [elem for elem in env.elems if isinstance(elem, Rabbit)]
     for rab in rabbits:
 
         sensor = (sensor_type(rab, n_rays=n_rays, range=range_rays, fov=3*math.pi/2, spatial_resolution=2))
         ray_shader.add_sensor(sensor)
-        
-    view.buf_update()
 
     t1 = time.time()
 
@@ -31,9 +28,8 @@ def analyze_speed_ray_shader(n_rays, range_rays, n_sensors, sensor_type, sensor_
         ray_shader.update_sensor()
         # arr = np.frombuffer(ray_shader.output_rays_buffer.read(), dtype=np.dtype('f'))
      
-    print(n_rays, range_rays, n_sensors, 10000/(time.time() - t1))
+    print(n_rays, range_rays, n_sensors, sensor_scale, 10000/(time.time() - t1))
 
-    ray_shader.ray_shader.delete()
     ray_shader.ctx.gc()
     del ray_shader
 
@@ -41,43 +37,40 @@ def analyze_speed_ray_shader(n_rays, range_rays, n_sensors, sensor_type, sensor_
 def visualize_ray_shader(mode):
 
     env = RabbitWorld((1000, 1000), 30, 5, 30, 0)
-    view = TopDownView(env, (0, 0), (500, 500), 0.5, False, id_view=True)
-    view_disp = TopDownView(env, (0, 0), (500, 500), 0.5, False, id_view=False)
 
-    ray_shader = RayShader(view)
+    ray_shader = RayCompute(env, center=(0,0), size=(1000, 1000), zoom=0.5)
 
-    wrabbits = [elem for elem in env.elems if isinstance(elem, WereRabbit)]
+    view_id = ray_shader.id_view
+    view_color = ray_shader.color_view
 
-    ids_rabbit = [elem.id for elem in env.elems if isinstance(elem, Rabbit)]
+    rabbits = [elem for elem in env.elems if isinstance(elem, Rabbit)]
    
     if mode == 'color':
         sensor = RGBSensor
     elif mode == 'dist':
         sensor = DistanceSensor
-
-    sensor_1 = sensor(wrabbits[0], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
-    sensor_1.invisible_ids = ids_rabbit
+    elif mode == 'id':
+        sensor = DistanceSensor
+    
+    sensor_1 = sensor( rabbits[0], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
     ray_shader.add_sensor(sensor_1)
     
-    sensor_2 = sensor(wrabbits[1], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
-    sensor_2.invisible_ids = ids_rabbit
+    sensor_2 = sensor( rabbits[1], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
     ray_shader.add_sensor(sensor_2)
     
-    sensor_3 = sensor(wrabbits[2], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
-    sensor_3.invisible_ids = ids_rabbit
+    sensor_3 = sensor( rabbits[2], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
     ray_shader.add_sensor(sensor_3)
      
-    sensor_4 = sensor(wrabbits[3], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
-    sensor_4.invisible_ids = ids_rabbit
+    sensor_4 = sensor( rabbits[3], n_rays=100, range=200, fov=2*math.pi, spatial_resolution=1)
     ray_shader.add_sensor(sensor_4)
-
-    view.buf_update()
-    view_disp.buf_update()
 
     t1 = time.time()
 
+    for i in range(100):
+        env.step()
+
     ray_shader.update_sensor()
-    array = np.frombuffer(view_disp.fbo.read(), dtype=np.dtype('B')).reshape(view.width, view.height, 3)
+    array = np.frombuffer(view_color.fbo.read(), dtype=np.dtype('B')).reshape(view_color.width, view_color.height, 3)
     img = Image.fromarray(array, 'RGB')
 
     d = ImageDraw.Draw(img)
@@ -86,7 +79,6 @@ def visualize_ray_shader(mode):
     for sensor in ray_shader.sensors:
         
         for ind_pt, pt in enumerate(sensor.hitpoints):
-
 
             view_x, view_y = pt[:2]
             x, y = pt[2:4]
@@ -106,7 +98,7 @@ def visualize_ray_shader(mode):
                     color = (int(dist*255), int(dist*255), int(dist*255))
 
                 elif mode == 'color':
-                    color = sensor.value[ind_pt]
+                    color = tuple(sensor.value[ind_pt].astype(np.uint8))
 
                 d.line((center_x, center_y, view_x, view_y), color)
             
@@ -116,16 +108,16 @@ def visualize_ray_shader(mode):
    
 if __name__ == '__main__':
 
-    # visualize_ray_shader(mode='color')
+    visualize_ray_shader(mode='dist')
 
     # visualize_ray_invisible_elems()
 
-    for n_rays in [100, 200]:
-        for range_rays in [500, 1000]:
-            for n_sensors in [20 , 50, 100]:
-                for sensor_scale in [1]:
+#     for n_rays in [100, 200]:
+#         for range_rays in [500, 1000]:
+#             for n_sensors in [20 , 50, 100]:
+#                 for sensor_scale in [0.1, 0.5, 1]:
 
-                    analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
+#                     analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
 
 
     # env = RabbitWorld(200, 200, 10, 0, 10, 0)

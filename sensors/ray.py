@@ -1,133 +1,10 @@
 from abc import ABC, abstractmethod
 import math
 import random
+from topdown import TopDownView
+import arcade
 import numpy as np
 from array import array
-
-
-class UniqueRaySensor:
-
-    def __init__(self, view, n_rays, range, fov, spatial_res):
-
-        self.view = view
-        self.range = range
-        self.n_rays = n_rays
-
-        self.ctx = self.view.ctx
-        
-        self.output_pts_coord = self.ctx.buffer(data = array('f', self.gen_data(n_rays)))
-        
-        self.ray_shader = self.ctx.compute_shader(source=
-            """
-            # version 430
-            
-            layout(local_size_x=256, local_size_y=1) in;
-            
-            struct HitPoint
-            {
-                vec4 pos;
-                vec4 color;
-            };
-
-            uniform sampler2D texture_view; 
-
-            uniform vec2 center;
-            uniform float angle;
-            uniform float range;
-            uniform int n_rays;
-            uniform float fov;
-            uniform float spatial_res;
-
-            float n_points = int(range/spatial_res);
-
-            layout(std430, binding=0) buffer hit_points
-            {
-                HitPoint hpts[];
-            } Out;
-
-            float pi = 3.14;
-
-            void main() {
-
-
-                int i_ray = int(gl_LocalInvocationID);
-
-                vec2 end_pos = vec2(
-                        center.x + range*cos(angle -fov/2 + i_ray*fov/n_rays),
-                        center.y + range*sin(angle -fov/2 + i_ray*fov/n_rays));
-
-                ivec2 sample_point = ivec2(0,0);
-
-                // Ray cast
-                for(float i=0; i<n_points; i++)
-                {
-                    float ratio = i/n_points;
-                    sample_point = ivec2(mix(center, end_pos, ratio));
-                    vec4 color_pt = texelFetch(texture_view, sample_point, 0);
-
-                    if (color_pt != vec4(0,0,0,0)) break;
-
-                }
-
-                // HitPoint hpt = Out.hpts[i_ray];
-               
-                // Get Pixel value
-                // ivec2 pos = ivec2(hpt.pos.xy);
-                // vec4 color_pt = texelFetch(texture_view, pos, 0);
-                
-                vec4 color_pt = vec4(255, 255*float(i_ray)/n_rays, 255*float(i_ray)/n_rays, 0);
-
-                // update_pos
-                // pos.x +=1 ;
-                // pos.y += 1;
-
-                HitPoint out_pt;
-                out_pt.pos = vec4(sample_point, 0, 0);
-                out_pt.color = color_pt;
-
-                Out.hpts[i_ray] = out_pt;
-                
-            }
-            """
-        )
-
-        self.ray_shader["range"] = range
-        self.ray_shader["n_rays"] = n_rays
-        self.ray_shader["fov"] = fov
-        self.ray_shader["spatial_res"] = spatial_res
-        self.center = 0, 0
-
-    def gen_data(self, n_rays):
-
-        for i in range(n_rays):
-
-            # position
-            # 
-            yield 0.
-            yield 0.
-            yield 0.
-            yield 0.
-
-            # color
-            yield 0.
-            yield 0.
-            yield 0.
-            yield 0.
-
-
-
-    def update_sensor(self):
-        
-        self.output_pts_coord.bind_to_storage_buffer(binding=0)
-        self.view.texture.use()
-
-        self.center = random.uniform(0, self.view.width), random.uniform(0, self.view.height)
-        self.ray_shader["center"] = self.center
-        self.ray_shader["angle"] = random.uniform(0, 2*math.pi)
-        self.ray_shader.run()
-
-        # arr = np.frombuffer(self.output_pts_coord.read(), dtype=np.dtype('f'))
-        # print(arr.reshape(self.n_rays, -1))
 
 
 class RaySensor:
@@ -146,6 +23,8 @@ class RaySensor:
         self.hitpoints = 0
 
         self.invisible_ids = []
+
+        self.requires_rgb = False
 
     @property
     def center(self):
@@ -172,46 +51,30 @@ class RGBSensor(RaySensor):
     def update_value(self, hitpoints):
 
         super().update_value(hitpoints)
+        self.value = hitpoints[:, 10:13]
 
-        colors = []
-
-        ids = hitpoints[:, 4]
-        rel_pos = hitpoints[2:4]
-
-        for htp in hitpoints:
-
-            pos = htp[2:4]
-            elem_id = int(htp[8])
-           
-            if elem_id == 0:
-                color = (0,0,0)
-
-            else:
-                elem = self.anchor.env.ids[elem_id]
-                color = elem.get_pixel_from_point(pos)
-
-            colors.append(color)
-
-        self.value = np.array(colors)
+        self.requires_rgb = True
 
 
-class RayShader:
+class RayCompute(arcade.Window):
 
-    def __init__(self, view):
+    def __init__(self, env, center, size, zoom):
 
-        self.sensors = []
-        self.view = view
+        super().__init__(1, 1, visible=False, antialiasing=True)
+
+        self.id_view = TopDownView(self.ctx, env, center, size, zoom, id_view=True)
+        self.color_view = TopDownView(self.ctx, env, center, size, zoom, id_view=False)
         
-        self.ctx = self.view.ctx
-
+        self.sensors = []
+        
         self.view_params_buffer = self.ctx.buffer(data = array('f', 
-                                                               [view.center[0],
-                                                                view.center[1],
-                                                                view.width,
-                                                                view.height,
-                                                                view.zoom
+                                                               [self.id_view.center[0],
+                                                                self.id_view.center[1],
+                                                                self.id_view.width,
+                                                                self.id_view.height,
+                                                                self.id_view.zoom
                                                                 ]))
-        self.source = """
+        self.source_compute_hitpoints = """
             # version 440
             
             layout(local_size_x=MAX_N_RAYS) in;
@@ -236,6 +99,10 @@ class RayShader:
 
                 float id;
                 float dist;
+
+                float r;
+                float g;
+                float b;
             };
 
             struct SensorParam
@@ -253,29 +120,29 @@ class RayShader:
                 float angle;
             };
 
-            uniform sampler2D id_texture; 
-            
+            uniform sampler2D id_texture;
+
             layout(std430, binding = 2) buffer sparams
             {
                 SensorParam sensor_params[N_SENSORS];
             } Params;
 
-            layout(std430, binding = 0) buffer coordinates
+            layout(std430, binding = 3) buffer coordinates
             { 
                 Coordinate coords[N_SENSORS];
             } In;
 
-            layout(std430, binding = 1) buffer hit_points
+            layout(std430, binding = 4) buffer hit_points
             {
                 HitPoint hpts[];
             } Out;
 
-            layout(std430, binding=3) buffer invisible_ids
+            layout(std430, binding=5) buffer invisible_ids
             {
                 int inv_ids[N_SENSORS][MAX_N_INVISIBLE];
             }InvIDs;
 
-            layout(std430, binding=4) buffer view_params
+            layout(std430, binding=6) buffer view_params
             {
                 float center_view_x;
                 float center_view_y;
@@ -327,7 +194,7 @@ class RayShader:
 
                 // OUTPUTS
                 ivec2 sample_point = ivec2(0,0);
-                vec4 color_out = vec4(0,0,0,0);
+                vec4 id_color_out = vec4(0,0,0,0);
                 int id_out = 0;
 
                 // Ray cast
@@ -335,10 +202,10 @@ class RayShader:
                 {
                     float ratio = i/n_points;
                     sample_point = ivec2(mix(center, end_pos, ratio));
-                    color_out = texelFetch(id_texture, sample_point, 0);
+                    id_color_out = texelFetch(id_texture, sample_point, 0);
 
-                    id_out = int(256*256*color_out.z*255 + 256*color_out.y*255 + color_out.x*255);
-                    
+                    id_out = int(256*256*id_color_out.z*255 + 256*id_color_out.y*255 + id_color_out.x*255);
+
                     if (id_out != 0)
                     {
                         bool invisible = false;
@@ -354,7 +221,10 @@ class RayShader:
 
                         }
 
-                        if (!invisible) break;
+                        if (!invisible) 
+                        {
+                            break;
+                        }
     
                     }
 
@@ -386,10 +256,80 @@ class RayShader:
                 out_pt.id = float(id_out);               
                 out_pt.dist = dist/zoom;
 
+                //out_pt.r = color_out.z*255;
+                //out_pt.g = color_out.y*255;
+                //out_pt.b = color_out.x*255;
+
                 Out.hpts[i_ray + i_sensor*MAX_N_RAYS] = out_pt;
                 
             }
             """
+        
+        self.source_compute_colors = """
+            # version 440
+            
+            layout(local_size_x=MAX_N_RAYS) in;
+            
+            struct HitPoint
+            {
+                // Position of hitpoint on view
+                float view_pos_x;
+                float view_pos_y;
+                
+                // Position of hitpoint in env
+                float env_pos_x;
+                float env_pos_y;
+
+                // Position of hitpoint relative to sensor
+                float rel_pos_x;
+                float rel_pos_y;
+
+                // Position of sensor on view
+                float sensor_x_on_view;
+                float sensor_y_on_view;
+
+                float id;
+                float dist;
+
+                float r;
+                float g;
+                float b;
+            };
+
+            uniform sampler2D color_texture;
+
+            layout(std430, binding = 4) buffer hit_points
+            {
+                HitPoint hpts[];
+            } In;
+
+            void main() {
+
+                int i_ray = int(gl_LocalInvocationIndex);
+                int i_sensor = int(gl_WorkGroupID);
+
+
+                HitPoint hit_pt = In.hpts[i_ray + i_sensor*MAX_N_RAYS] ;
+                
+                float x = hit_pt.view_pos_x;
+                float y = hit_pt.view_pos_y;
+
+                ivec2 pos = ivec2(x, y);
+
+                vec4 color_out = texelFetch(color_texture, pos, 0);
+
+                hit_pt.r = color_out.x*255;
+                hit_pt.g = color_out.y*255;
+                hit_pt.b = color_out.z*255;
+
+                In.hpts[i_ray + i_sensor*MAX_N_RAYS] = hit_pt;
+                
+            }
+            """
+
+
+
+
 
     @property
     def n_sensors(self):
@@ -445,6 +385,11 @@ class RayShader:
                     # Distance
                     yield 0.
 
+                    # Color
+                    yield 0.
+                    yield 0.
+                    yield 0.
+
     def generate_invisible_buffer(self):
 
         for sensor in self.sensors:
@@ -469,29 +414,40 @@ class RayShader:
         self.param_buffer = self.ctx.buffer(data = array('f', self.generate_parameter_buffer()))
         self.output_rays_buffer = self.ctx.buffer(data = array('f', self.generate_output_buffer()))
         self.inv_buffer = self.ctx.buffer(data = array('I', self.generate_invisible_buffer()))
-        new_source = self.source
+        new_source = self.source_compute_hitpoints
         new_source = new_source.replace('N_SENSORS', str(len(self.sensors)))
         new_source = new_source.replace('MAX_N_RAYS', str(self.max_n_rays))
         new_source = new_source.replace('MAX_N_INVISIBLE', str(self.max_invisible))
-        self.ray_shader = self.ctx.compute_shader(source = new_source)
-
-        self.output_rays_buffer.bind_to_storage_buffer(binding=1)
+        self.hitpoints_shader = self.ctx.compute_shader(source = new_source)
+        
+        new_source = self.source_compute_colors
+        new_source = new_source.replace('MAX_N_RAYS', str(self.max_n_rays))
+        self.color_shader = self.ctx.compute_shader(source=new_source)
+        
+        self.output_rays_buffer.bind_to_storage_buffer(binding=4)
         self.param_buffer.bind_to_storage_buffer(binding=2)
-        self.inv_buffer.bind_to_storage_buffer(binding=3)
-        self.view_params_buffer.bind_to_storage_buffer(binding=4)
+        self.inv_buffer.bind_to_storage_buffer(binding=5)
+        self.view_params_buffer.bind_to_storage_buffer(binding=6)
 
 
     def update_sensor(self):
-        
+       
+        self.id_view.buf_update()
+        self.color_view.buf_update()
+
         if self.sensors:
             self.position_buffer = self.ctx.buffer(data = array('f', self.generate_position_buffer()))
-            self.position_buffer.bind_to_storage_buffer(binding=0)
-            self.view.texture.use()
+            self.position_buffer.bind_to_storage_buffer(binding=3)
 
-            self.ray_shader.run(group_x = self.n_sensors)
+            self.id_view.texture.use()
+            self.hitpoints_shader.run(group_x = self.n_sensors)
+
+            self.color_view.texture.use()
+            self.color_shader.run(group_x = self.n_sensors)
+
 
             hitpoints = np.frombuffer(self.output_rays_buffer.read(),
-                                      dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 10)
+                                      dtype=np.float32).reshape( self.n_sensors, self.max_n_rays, 13)
 
             for index, sensor in enumerate(self.sensors):
                 sensor.update_value(hitpoints[index, :sensor.n_rays, :])

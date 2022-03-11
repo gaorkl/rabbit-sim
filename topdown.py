@@ -4,19 +4,26 @@ import numpy as np
 from PIL import Image, ImageShow
 
 
-class TopDownView(arcade.Window):
+class TopDownView:
 
-    def __init__(self, env, center, size, zoom, visible=False, id_view = False) -> None:
+    def __init__(self, context, env, center, size, zoom, id_view = False) -> None:
        
         w, h = size
+        self.width = w
+        self.height = h
+
+        self.size = size
+
         self.center = center
         self.zoom = zoom
         self.env = env
         env.views.append(self)
-        
+       
+        self.ctx = context
+
         self.id_view = id_view
 
-        super().__init__(w, h, visible=visible, antialiasing=False)
+        # super().__init__(w, h, visible=visible, antialiasing=False)
 
         self.sprites = arcade.SpriteList()
         
@@ -56,12 +63,6 @@ class TopDownView(arcade.Window):
             self.ctx.projection_2d = 0, self.width, 0, self.height
             self.sprites.draw(pixelated=True)
 
-    def on_draw(self):
-        self.env.step()
-        self.clear()
-        self.sprites.draw()
-        # self.sprites.draw_hit_boxes(line_thickness=3, color=(255, 0, 0))
-    
     def imdisplay(self):
         array = np.frombuffer(self.fbo.read(), dtype=np.dtype('B')).reshape(self.height, self.width, 3)
         img = Image.fromarray(array, 'RGB')
