@@ -18,9 +18,11 @@ def dummy_handler(_arbiter, _space, _data):
     return True
 
 
-class RabbitWorld(object):
+class RabbitWorld(arcade.Window):
     
     def __init__(self, size, n_rabbits, n_wrabbits, n_carrots, seed):
+
+        super().__init__(1, 1, visible=False, antialiasing=True)
 
         random.seed(seed)
         self.w, self.h = size
@@ -56,6 +58,7 @@ class RabbitWorld(object):
 
 
         self.views = []
+
 
     def get_id(self, elem):
 
@@ -109,9 +112,6 @@ class RabbitWorld(object):
                 elem.body.angular_velocity = angular_speed
 
         self.space.step(dt=0.1)
-
-        for view in self.views:
-            view.buf_update()
 
 if __name__ == '__main__':
 

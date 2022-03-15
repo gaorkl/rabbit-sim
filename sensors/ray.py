@@ -56,14 +56,16 @@ class RGBSensor(RaySensor):
         self.requires_rgb = True
 
 
-class RayCompute(arcade.Window):
+class RayCompute():
 
     def __init__(self, env, center, size, zoom):
 
-        super().__init__(1, 1, visible=False, antialiasing=True)
 
-        self.id_view = TopDownView(self.ctx, env, center, size, zoom, id_view=True)
-        self.color_view = TopDownView(self.ctx, env, center, size, zoom, id_view=False)
+        self.env = env
+        self.ctx = env.ctx
+
+        self.id_view = TopDownView(env, center, size, zoom, id_view=True)
+        self.color_view = TopDownView(env, center, size, zoom, id_view=False)
         
         self.sensors = []
         

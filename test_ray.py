@@ -11,7 +11,7 @@ from env import RabbitWorld, TopDownView
 
 def analyze_speed_ray_shader(n_rays, range_rays, n_sensors, sensor_type, sensor_scale):
     
-    env = RabbitWorld((2000, 2000), n_sensors, 50, 200, 0)
+    env = RabbitWorld((2000, 2000), n_sensors, 10, 200, 0)
 
     ray_shader = RayCompute(env, center=(0,0), size = (int(2000*sensor_scale), int(2000*sensor_scale)), zoom = sensor_scale)    
 
@@ -108,16 +108,16 @@ def visualize_ray_shader(mode):
    
 if __name__ == '__main__':
 
-    visualize_ray_shader(mode='dist')
+    visualize_ray_shader(mode='id')
 
     # visualize_ray_invisible_elems()
 
-#     for n_rays in [100, 200]:
-#         for range_rays in [500, 1000]:
-#             for n_sensors in [20 , 50, 100]:
-#                 for sensor_scale in [0.1, 0.5, 1]:
+    # for n_rays in [100, 200]:
+    #     for range_rays in [500, 1000]:
+    #         for n_sensors in [20 , 50, 100]:
+    #             for sensor_scale in [0.1, 0.5, 1]:
 
-#                     analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
+    #                 analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
 
 
     # env = RabbitWorld(200, 200, 10, 0, 10, 0)

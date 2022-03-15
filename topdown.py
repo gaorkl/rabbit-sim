@@ -6,7 +6,7 @@ from PIL import Image, ImageShow
 
 class TopDownView:
 
-    def __init__(self, context, env, center, size, zoom, id_view = False) -> None:
+    def __init__(self, env, center, size, zoom, id_view = False) -> None:
        
         w, h = size
         self.width = w
@@ -19,14 +19,14 @@ class TopDownView:
         self.env = env
         env.views.append(self)
        
-        self.ctx = context
+        self.ctx = env.ctx
 
         self.id_view = id_view
 
         # super().__init__(w, h, visible=visible, antialiasing=False)
 
         self.sprites = arcade.SpriteList()
-        
+       
         self.radius = pymunk.Vec2d(w/2, h/2).length / zoom 
         
         # self.ctx.enable_only(self.ctx.ONE)
