@@ -1,3 +1,4 @@
+
 from elements import Rabbit, WereRabbit, id_to_pixel
 import math
 import numpy as np
