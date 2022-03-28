@@ -1,3 +1,6 @@
+import os
+os.environ["ARCADE_HEADLESS"] = "True"
+
 
 from elements import Rabbit, WereRabbit, id_to_pixel
 import math
@@ -109,16 +112,16 @@ def visualize_ray_shader(mode):
    
 if __name__ == '__main__':
 
-    visualize_ray_shader(mode='id')
+    # visualize_ray_shader(mode='id')
 
     # visualize_ray_invisible_elems()
 
-    # for n_rays in [100, 200]:
-    #     for range_rays in [500, 1000]:
-    #         for n_sensors in [20 , 50, 100]:
-    #             for sensor_scale in [0.1, 0.5, 1]:
+    for n_rays in [100, 200]:
+        for range_rays in [500, 1000]:
+            for n_sensors in [20 , 50, 100]:
+                for sensor_scale in [0.1, 0.5, 1]:
 
-    #                 analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
+                    analyze_speed_ray_shader(n_rays, range_rays, n_sensors, RGBSensor, sensor_scale)
 
 
     # env = RabbitWorld(200, 200, 10, 0, 10, 0)
